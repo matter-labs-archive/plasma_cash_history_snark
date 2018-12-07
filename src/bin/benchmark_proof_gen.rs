@@ -2,8 +2,8 @@ extern crate ff;
 extern crate pairing;
 extern crate rand;
 extern crate sapling_crypto;
-extern crate plasma_cash_bonus;
 extern crate bellman;
+extern crate plasma_cash_history_snark;
 
 use ff::{PrimeField};
 use pairing::bn256::*;
@@ -11,8 +11,8 @@ use bellman::Circuit;
 use rand::{SeedableRng, Rng, XorShiftRng};
 use sapling_crypto::circuit::test::*;
 use sapling_crypto::alt_babyjubjub::{AltJubjubBn256};
-use plasma_cash_bonus::transaction_tree::{BabyTransactionTree, BabyTransactionLeaf};
-use plasma_cash_bonus::circuit::non_inclusion::{NonInclusion, BlockWitness};
+use plasma_cash_history_snark::transaction_tree::{BabyTransactionTree, BabyTransactionLeaf};
+use plasma_cash_history_snark::circuit::non_inclusion::{NonInclusion, BlockWitness};
 
 const TREE_DEPTH: u32 = 24;
 const NUMBER_OF_BLOCKS_TO_PROVE: u32 = 128;

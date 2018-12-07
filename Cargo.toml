@@ -1,5 +1,4 @@
 [package]
-name = "plasma_cash_history_snark"
 authors = ["Alex Vlasov <alex.m.vlasov@gmail.com>"]
 description = "Use zkSNARK to compact the history in Plasma Cash or Cashflow"
 documentation = "https://github.com/matterinc/plasma_cash_history_snark"
@@ -9,6 +8,10 @@ name = "plasma_cash_history_snark"
 repository = "https://github.com/matterinc/plasma_cash_history_snark"
 version = "0.1.0"
 
+[lib]
+name = "plasma_cash_history_snark"
+path = "src/lib.rs"
+
 [dependencies]
 rand = "0.4"
 ff = { version = "0.4", features = ["derive"] }
@@ -17,7 +20,7 @@ time = "0.1"
 num-bigint = "0.2"
 rust-crypto = "0.2"
 pairing = { git = 'https://github.com/matterinc/pairing' }
-sapling-crypto = { git = 'https://github.com/matterinc/sapling' }
+sapling-crypto = { git = 'https://github.com/matterinc/sapling-crypto' }
 bellman = { git = 'https://github.com/matterinc/bellman' }
 
 
