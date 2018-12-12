@@ -25,6 +25,6 @@ use sapling_crypto::circuit::{
     float_point,
 };
 
-use transaction_tree;
+use crate::transaction_tree;
 
 pub mod non_inclusion;

@@ -7,9 +7,8 @@ use pairing::bn256::{Bn256, Fr};
 use sapling_crypto::alt_babyjubjub::{JubjubEngine, AltJubjubBn256, edwards::Point, PrimeOrder};
 
 use super::primitives::{GetBits, GetBitsFixed};
-use super::sparse_merkle_tree;
-// use super::sparse_merkle_tree::parallel_smt;
-use super::sparse_merkle_tree::pedersen_hasher::PedersenHasher;
+use crate::sparse_merkle_tree;
+use crate::sparse_merkle_tree::pedersen_hasher::PedersenHasher;
 
 const HASH_LENGTH: usize = 256;
 
@@ -43,7 +42,7 @@ pub type BabyTransactionTree = sparse_merkle_tree::SparseMerkleTree<BabyTransact
 
 impl BabyTransactionTree {
     pub fn verify_proof(&self, index: u32, item: BabyTransactionLeaf, proof: Vec<(Fr, bool)>) -> bool {
-        use sparse_merkle_tree::hasher::Hasher;
+        use crate::sparse_merkle_tree::hasher::Hasher;
         assert!(index < self.capacity());
         let item_bits = item.get_bits_le();
         let mut hash = self.hasher.hash_bits(item_bits);

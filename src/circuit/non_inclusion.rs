@@ -40,7 +40,7 @@ use super::baby_eddsa::EddsaSignature;
 #[derive(Clone)]
 pub struct BlockWitness<E: JubjubEngine> {
     pub root: Option<E::Fr>,
-    pub proof: Vec<Option<(E::Fr, bool)>>,
+    pub proof: Vec<Option<E::Fr>>,
 }
 
 #[derive(Clone)]
@@ -129,22 +129,49 @@ impl<'a, E: JubjubEngine> Circuit<E> for NonInclusion<'a, E> {
         )?;
         interval.inputize(cs.namespace(|| "slice interval input"))?;
 
-        // index is expected to be just a coin number
+        // prove that coin index is divisible by coin ID
+        // In principle as index and length are public inputs, it's much easier to do
+        // externally
+        let division_result = AllocatedNum::alloc(
+            cs.namespace(|| "division_result"),
+            || {
+                let interval_length = *interval.get_value().get()?;
+                let interval_length_inverse = *interval_length.inverse().get()?;
+                let mut division_result = *index.get_value().get()?;
+                division_result.mul_assign(&interval_length_inverse);
+                Ok(division_result)
+            }
+        )?;
+
+        cs.enforce(
+            || "enforce index by length division",
+            |lc| lc + interval.get_variable(),
+            |lc| lc + division_result.get_variable(),
+            |lc| lc + index.get_variable()
+        );
+
+        // if there was some fancy overflowing division, then top bits will be non-zero
+        division_result.limit_number_of_bits(
+            cs.namespace(|| "limit number of bits for new balance from"),
+            self.tree_depth
+        )?;
+
+        // interval is expected to be power of two
         let mut interval_bits = interval.into_bits_le(
             cs.namespace(|| "level bits")
         )?;
         interval_bits.truncate(self.tree_depth);
 
         let num_of_ones_in_level = count_number_of_ones(
-            cs.namespace(|| "count number of ones"), 
+            cs.namespace(|| "count number of ones in internal length"), 
             &interval_bits
         )?;
         
         cs.enforce(
             || "enforce number of ones",
+            |lc| lc + num_of_ones_in_level.get_variable(),
             |lc| lc + CS::one(),
-            |lc| lc + CS::one(),
-            |lc| lc + num_of_ones_in_level.get_variable()
+            |lc| lc + CS::one()
         );
 
         // now create a bitmask for higher levels
@@ -192,33 +219,36 @@ impl<'a, E: JubjubEngine> Circuit<E> for NonInclusion<'a, E> {
             self.params
         )?;
 
-        let mut cur = empty_leaf_hash.get_x().clone();
+        let mut current_empty = empty_leaf_hash.get_x().clone();
 
-        empty_levels.push(cur.clone());
+        empty_levels.push(current_empty.clone());
 
-        for i in 0..self.tree_depth {
+        for i in 0..self.tree_depth-1 {
             let cs = &mut cs.namespace(|| format!("compute empty leafs merkle tree hash {}", i));
 
             let mut preimage = vec![];
-            let cur_bits = cur.into_bits_le(cs.namespace(|| "current into bits"))?;
+            let cur_bits = current_empty.into_bits_le(cs.namespace(|| "current into bits"))?;
             preimage.extend(cur_bits.clone());
             preimage.extend(cur_bits);
 
             // Compute the new subtree value
-            cur = pedersen_hash::pedersen_hash(
+            current_empty = pedersen_hash::pedersen_hash(
                 cs.namespace(|| "computation of pedersen hash"),
                 pedersen_hash::Personalization::MerkleTree(i),
                 &preimage,
                 self.params
             )?.get_x().clone(); // Injective encoding
 
-            empty_levels.push(cur.clone());
+            empty_levels.push(current_empty.clone());
         }
 
-        for (i_witnesses, w) in self.witness.into_iter().enumerate() {
-            let cs = &mut cs.namespace(|| format!("block proof number {}", i_witnesses));
+        let mut root_hash_inputs = vec![];
+
+        // allocate the inputs
+        for (i, w) in self.witness.clone().into_iter().enumerate() {
+            let cs = &mut cs.namespace(|| format!("block proof number {}", i));
             // allocate public input
-            let mut proof_input = AllocatedNum::alloc(
+            let proof_input = AllocatedNum::alloc(
                 cs.namespace(|| "root"),
                 || Ok(*w.root.get()?)
             )?;
@@ -226,55 +256,61 @@ impl<'a, E: JubjubEngine> Circuit<E> for NonInclusion<'a, E> {
             proof_input.inputize(
                 cs.namespace(|| "input for root")
             )?;
-            
-            let audit_path = w.proof;
-            assert!(self.tree_depth == audit_path.len());
+
+            root_hash_inputs.push(proof_input);
+        }
+
+        for (j, (root_hash, witness)) in root_hash_inputs.into_iter()
+                                .zip(self.witness.into_iter())
+                                .enumerate() {
+
+            let audit_path = witness.proof;
+            assert_eq!(self.tree_depth, audit_path.len());
+            assert_eq!(self.tree_depth, level_bitmask.len());
+            assert_eq!(self.tree_depth, index_input_bits.len());
 
             // at least at the bottom level there should be zero
             let mut cur = empty_leaf_hash.get_x().clone();
 
             // Ascend the merkle tree authentication path
-            for (i_tree_levels, (e, level_bit)) in audit_path.clone().into_iter().zip(level_bitmask.clone().into_iter()).enumerate() {
-                let cs_w = &mut cs.namespace(|| format!("merkle tree hash {}", i_tree_levels));
-
-                // Determines if the current subtree is the "right" leaf at this
+            for (i, ( (e, level_bit), direction_bit) ) in audit_path.clone().into_iter()
+                                                .zip(level_bitmask.clone().into_iter())
+                                                .zip(index_input_bits.clone().into_iter())
+                                                // .zip(self.empty_hashes.clone().into_iter())
+                                                .enumerate() {
+                let cs = &mut cs.namespace(|| format!("proof procedue for block {}, level {}", j, i));
+                // Direction bit determines if the current subtree is the "right" leaf at this
                 // depth of the tree.
 
-                let cur_is_right = boolean::Boolean::from(
-                    boolean::AllocatedBit::alloc(
-                    cs_w.namespace(|| "position bit"),
-                    e.map(|e| e.1)
-                )?);
-
-                // Constraint this bit immediately
-                boolean::Boolean::enforce_equal(
-                    cs_w.namespace(|| "position bit is equal the start of the interval field bit"),
-                    &cur_is_right, 
-                    &index_input_bits[i_tree_levels]
+                let empty_leaf = num::AllocatedNum::alloc(
+                    cs.namespace(|| "reallocate empty leaf"),
+                    || {
+                        Ok(*empty_levels[i].get_value().get()?)
+                    }
                 )?;
 
-                cur = num::AllocatedNum::conditionally_select(
-                    cs_w.namespace(|| "conditional select of empty or not leaf hash"),
-                    &empty_levels[i_tree_levels], 
+                let current_chosen = num::AllocatedNum::conditionally_select(
+                    cs.namespace(|| "conditional select of empty or not leaf hash"),
+                    &empty_leaf, 
                     &cur,
                     &level_bit
                 )?;
 
                 // Witness the authentication path element adjacent
                 // at this depth.
-                let mut path_element = num::AllocatedNum::alloc(
-                    cs_w.namespace(|| "path element"),
+                let path_element = num::AllocatedNum::alloc(
+                    cs.namespace(|| "path element"),
                     || {
-                        Ok(e.get()?.0)
+                        Ok(*e.get()?)
                     }
                 )?;
 
                 // Swap the two if the current subtree is on the right
                 let (xl, xr) = num::AllocatedNum::conditionally_reverse(
-                    cs_w.namespace(|| "conditional reversal of preimage"),
-                    &cur,
+                    cs.namespace(|| "conditional reversal of preimage"),
+                    &current_chosen,
                     &path_element,
-                    &cur_is_right
+                    &direction_bit
                 )?;
 
                 // We don't need to be strict, because the function is
@@ -282,24 +318,25 @@ impl<'a, E: JubjubEngine> Circuit<E> for NonInclusion<'a, E> {
                 // they will be unable to find an authentication path in the
                 // tree with high probability.
                 let mut preimage = vec![];
-                preimage.extend(xl.into_bits_le(cs_w.namespace(|| "xl into bits"))?);
-                preimage.extend(xr.into_bits_le(cs_w.namespace(|| "xr into bits"))?);
+                preimage.extend(xl.into_bits_le(cs.namespace(|| "xl into bits"))?);
+                preimage.extend(xr.into_bits_le(cs.namespace(|| "xr into bits"))?);
 
                 // Compute the new subtree value
                 cur = pedersen_hash::pedersen_hash(
-                    cs_w.namespace(|| "computation of pedersen hash"),
-                    pedersen_hash::Personalization::MerkleTree(i_tree_levels),
+                    cs.namespace(|| "computation of pedersen hash"),
+                    pedersen_hash::Personalization::MerkleTree(i),
                     &preimage,
                     self.params
                 )?.get_x().clone(); // Injective encoding
+
             }
 
-            // enforce old root before update
+            // enforce that root is equal to the expected one
             cs.enforce(
-                || "enforce correct root hash",
+                || format!("enforce correct root hash for block {}", j),
                 |lc| lc + cur.get_variable(),
                 |lc| lc + CS::one(),
-                |lc| lc + proof_input.get_variable()
+                |lc| lc + root_hash.get_variable()
             );
         }
 
@@ -317,7 +354,7 @@ fn test_non_inclusion_proof() {
     use rand::{SeedableRng, Rng, XorShiftRng, Rand};
     use sapling_crypto::circuit::test::*;
     use sapling_crypto::alt_babyjubjub::{AltJubjubBn256, fs, edwards, PrimeOrder};
-    use transaction_tree::{BabyTransactionTree, BabyTransactionLeaf, Leaf};
+    use crate::transaction_tree::{BabyTransactionTree, BabyTransactionLeaf, Leaf};
 
     extern crate hex;
 
@@ -376,7 +413,7 @@ fn test_non_inclusion_proof() {
         assert!(tree.verify_proof(start_of_slice, empty_leaf.clone(), tree.merkle_path(start_of_slice)));
 
         let proof = tree.merkle_path(start_of_slice);
-        let proof_as_some: Vec<Option<(Fr, bool)>> = proof.into_iter().map(|e| Some(e)).collect();
+        let proof_as_some: Vec<Option<Fr>> = proof.into_iter().map(|e| Some(e.0)).collect();
 
         let block_witness: BlockWitness<Bn256> = BlockWitness {
             root: Some(root),
