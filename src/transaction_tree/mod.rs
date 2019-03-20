@@ -1,9 +1,9 @@
 // Plasma account (Merkle tree leaf)
 
 use std::fmt::{self, Debug};
-use ff::{Field, PrimeField, PrimeFieldRepr};
+use bellman::pairing::ff::{Field, PrimeField, PrimeFieldRepr};
 use rand::{Rand, thread_rng};
-use pairing::bn256::{Bn256, Fr};
+use bellman::pairing::bn256::{Bn256, Fr};
 use sapling_crypto::alt_babyjubjub::{JubjubEngine, AltJubjubBn256, edwards::Point, PrimeOrder};
 
 use super::primitives::{GetBits, GetBitsFixed};

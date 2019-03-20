@@ -5,10 +5,8 @@
 #![allow(unused_assignments)]
 
 extern crate bellman;
-extern crate pairing;
 extern crate rand;
 extern crate hex;
-extern crate ff;
 extern crate sapling_crypto;
 extern crate crypto;
 

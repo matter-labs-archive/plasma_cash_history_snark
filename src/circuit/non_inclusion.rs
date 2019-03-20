@@ -1,4 +1,4 @@
-use ff::{
+use bellman::pairing::ff::{
     PrimeField,
     Field,
     BitIterator,
@@ -349,8 +349,8 @@ const NUMBER_OF_BLOCKS_TO_PROVE: u32 = 1;
 
 #[test]
 fn test_non_inclusion_proof() {
-    use ff::{Field};
-    use pairing::bn256::*;
+    use bellman::pairing::ff::{Field};
+    use bellman::pairing::bn256::*;
     use rand::{SeedableRng, Rng, XorShiftRng, Rand};
     use sapling_crypto::circuit::test::*;
     use sapling_crypto::alt_babyjubjub::{AltJubjubBn256, fs, edwards, PrimeOrder};

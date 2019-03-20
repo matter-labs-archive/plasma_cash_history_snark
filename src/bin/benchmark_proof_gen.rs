@@ -1,5 +1,3 @@
-extern crate ff;
-extern crate pairing;
 extern crate rand;
 extern crate sapling_crypto;
 extern crate bellman;
@@ -7,8 +5,8 @@ extern crate plasma_cash_history_snark;
 extern crate time;
 
 use time::PreciseTime;
-use ff::{PrimeField};
-use pairing::bn256::*;
+use bellman::pairing::ff::{PrimeField};
+use bellman::pairing::bn256::*;
 use bellman::{Circuit};
 use rand::{SeedableRng, Rng, XorShiftRng};
 use sapling_crypto::circuit::test::*;

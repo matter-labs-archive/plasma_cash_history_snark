@@ -1,4 +1,4 @@
-use ff::{Field, PrimeField, PrimeFieldRepr, BitIterator};
+use bellman::pairing::ff::{Field, PrimeField, PrimeFieldRepr, BitIterator};
 
 // TODO: replace Vec with Iterator?
 
